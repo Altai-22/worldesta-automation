@@ -60,6 +60,52 @@ router.get('/token-status', async (req, res) => {
     logger.error('Error checking YouTube token:', error);
     res.status(500).json({ error: 'Failed to check token status' });
   }
+
+  // YouTube Video Upload
+router.post('/upload', async (req, res) => {
+  try {
+    const { title, description, tags, privacy_status } = req.body;
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'Video file required' });
+    if (!title) return res.status(400).json({ error: 'Title required' });
+    const tokenResult = await pool.query(
+      `SELECT access_token FROM oauth_tokens WHERE platform = $1 LIMIT 1`,
+      ['youtube']
+    );
+    if (tokenResult.rows.length === 0) {
+      return res.status(401).json({ error: 'YouTube auth required' });
+    }
+    const access_token = tokenResult.rows[0].access_token;
+    const { google } = require('googleapis');
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token });
+    const youtube = google.youtube({ version: 'v3', auth: oauth2Client });
+    const uploadResponse = await youtube.videos.insert({
+      part: 'snippet,status',
+      requestBody: {
+        snippet: { title, description: description || '', tags: tags || [] },
+        status: { privacyStatus: privacy_status || 'private' },
+      },
+      media: { body: require('fs').createReadStream(file.path) },
+    });
+    const videoId = uploadResponse.data.id;
+    const videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const dbResult = await pool.query(
+      `INSERT INTO videos (title, description, video_url, platform, status) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [title, description || '', videoUrl, 'youtube', 'published']
+    );
+    const videoDbId = dbResult.rows[0].id;
+    await pool.query(
+      `INSERT INTO publications (video_id, platform, platform_video_id, status) VALUES ($1, $2, $3, $4)`,
+      [videoDbId, 'youtube', videoId, 'published']
+    );
+    logger.info(`YouTube video uploaded: ${videoId}`);
+    res.json({ success: true, videoId, videoUrl, dbVideoId: videoDbId });
+  } catch (error) {
+    logger.error('YouTube upload error:', error);
+    res.status(500).json({ error: 'Upload failed', details: error.message });
+  }
+});
 });
 
 module.exports = router;
