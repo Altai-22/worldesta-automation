@@ -2,10 +2,18 @@ const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
 const dotenv = require('dotenv');
-const path = require('path');
+const cloudinary = require('cloudinary').v2;
+const logger = require('./utils/logger');
 
 // Load environment variables
 dotenv.config();
+
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 
 // Initialize Express app
 const app = express();
@@ -18,6 +26,13 @@ app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Import routes
+const apiRoutes = require('./routes');
+const db = require('./config/database');
+
+// Mount API routes
+app.use('/api', apiRoutes);
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.status(200).json({
@@ -28,70 +43,59 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// API Routes (to be implemented)
-app.get('/api/videos', (req, res) => {
-  res.status(200).json({
-    message: 'Videos endpoint',
-    data: []
-  });
-});
-
-app.get('/api/schedules', (req, res) => {
-  res.status(200).json({
-    message: 'Schedules endpoint',
-    data: []
-  });
-});
-
-app.get('/api/status', (req, res) => {
-  res.status(200).json({
-    message: 'System status',
-    services: {
-      database: 'pending',
-      youtube: 'pending',
-      tiktok: 'pending',
-      cloudinary: 'pending'
-    }
-  });
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal Server Error',
-    path: req.path,
-    method: req.method
-  });
-});
-
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({
     error: 'Not Found',
-    path: req.path,
-    message: `Route ${req.path} not found`
+    message: 'The requested endpoint does not exist',
+    path: req.originalUrl
+  });
+});
+
+// Error handling middleware (must be last)
+app.use((err, req, res, next) => {
+  const status = err.status || 500;
+  const message = err.message || 'Internal Server Error';
+  
+  logger.error(message, err);
+  
+  res.status(status).json({
+    error: {
+      status: status,
+      message: message,
+      timestamp: new Date().toISOString(),
+      ...(NODE_ENV === 'development' && { stack: err.stack })
+    }
   });
 });
 
 // Start server
-const server = app.listen(PORT, () => {
-  console.log(`\n========================================`);
-  console.log(`Worldesta Automation Server Started`);
-  console.log(`========================================`);
-  console.log(`Environment: ${NODE_ENV}`);
-  console.log(`Server running on: http://localhost:${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/api/health`);
-  console.log(`========================================\n`);
+const startServer = async () => {
+  try {
+    // Test database connection
+    await db.query('SELECT NOW()');
+    logger.info('✅ Database connected successfully');
+    
+    app.listen(PORT, () => {
+      logger.info(`🚀 Server running on port ${PORT} (${NODE_ENV})`);
+    });
+  } catch (error) {
+    logger.error('Failed to start server', error);
+    process.exit(1);
+  }
+};
+
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+  logger.info('SIGTERM signal received: closing HTTP server');
+  process.exit(0);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  server.close(() => {
-    console.log('HTTP server closed');
-    process.exit(0);
-  });
+process.on('SIGINT', () => {
+  logger.info('SIGINT signal received: closing HTTP server');
+  process.exit(0);
 });
+
+startServer();
 
 module.exports = app;
