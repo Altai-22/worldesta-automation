@@ -1,0 +1,98 @@
+# Render.com Deployment Configuration
+# This file defines the automatic deployment setup for Worldesta Automation
+
+services:
+  - type: web
+    name: worldesta-automation
+    runtime: node
+    plan: free  # or starter/standard for production
+    
+    # Git repository settings
+    repo: https://github.com/Altai-22/worldesta-automation
+    branch: main
+    
+    # Build configuration
+    buildCommand: npm install
+    startCommand: npm start
+    
+    # Environment variables (add via Render dashboard)
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: TZ
+        value: UTC
+      
+      # Database Configuration
+      - key: DB_HOST
+        sync: false  # Set via Render environment
+      - key: DB_PORT
+        value: 5432
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_SSL
+        value: "true"
+      
+      # Cloudinary Configuration
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      
+      # YouTube OAuth
+      - key: YOUTUBE_CLIENT_ID
+        sync: false
+      - key: YOUTUBE_CLIENT_SECRET
+        sync: false
+      - key: YOUTUBE_REDIRECT_URI
+        value: https://worldesta-automation.onrender.com/api/youtube/callback
+      
+      # TikTok OAuth
+      - key: TIKTOK_CLIENT_ID
+        sync: false
+      - key: TIKTOK_CLIENT_SECRET
+        sync: false
+      - key: TIKTOK_REDIRECT_URI
+        value: https://worldesta-automation.onrender.com/api/tiktok/callback
+      
+      # JWT Configuration
+      - key: JWT_SECRET
+        sync: false  # CRITICAL: Set this securely
+      - key: JWT_EXPIRE
+        value: 7d
+    
+    # Health check configuration
+    healthCheckPath: /api/health
+    healthCheckInterval: 30
+    
+    # Auto-deploy on push
+    autoDeploy: true
+    
+    # Predeployment script (database migrations)
+    preDeployCommand: |
+      echo "Running pre-deployment checks..."
+      npm install
+    
+    # Post-deployment script
+    postDeployCommand: |
+      echo "Post-deployment setup complete"
+      echo "Production URL: https://worldesta-automation.onrender.com"
+
+# Scheduled jobs (if needed)
+jobs:
+  - type: cron
+    name: database-maintenance
+    schedule: "0 2 * * *"  # 2 AM UTC daily
+    command: npm run maintain:db
+    
+  - type: cron
+    name: cleanup-old-logs
+    schedule: "0 3 * * 0"  # 3 AM UTC every Sunday
+    command: npm run cleanup:logs
